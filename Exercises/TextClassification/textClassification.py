@@ -3,15 +3,13 @@ import os
 import shutil
 import random
 import tensorflow as tf
-import numpy as np
 
-# from tensorflow.keras import layers
 from tensorflow.keras import losses
 # from tensorflow.keras import preprocessing
 from tensorflow.keras import layers
 from tensorflow.keras.layers.experimental.preprocessing import TextVectorization
 import matplotlib.pyplot as plt
-from methods import custom_standardization, HuberLoss
+from methods import custom_standardization
 
 # Download the dataset if not already
 path = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Git\Tensorflow-Cert\Exercises\01 Data'
@@ -223,4 +221,26 @@ model = tf.keras.models.load_model(mp_path)
 loss, accuracy = model.evaluate(test_ds)
 print(accuracy)
 
+export_model = tf.keras.Sequential([
+  vectorize_layer,
+  model,
+  layers.Activation('sigmoid')
+])
 
+export_model.compile(
+    loss=losses.BinaryCrossentropy(from_logits=False), optimizer="adam", metrics=['accuracy']
+)
+
+# Test it with `raw_test_ds`, which yields raw strings
+loss, accuracy = export_model.evaluate(raw_test_ds)
+print(accuracy)
+
+examples = [
+  "The movie was great!",
+  "The movie was okay.",
+  "The movie was terrible..."
+]
+
+pred = export_model.predict(examples)
+print("Predictions")
+print(pred)
