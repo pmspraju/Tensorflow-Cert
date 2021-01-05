@@ -80,6 +80,7 @@ for example in features_ds:
         print(f"{name:19s}: {value}")
     break
 
+# Read the csv from the tensorflow method
 pet_finder_ds = tf.data.experimental.make_csv_dataset(
     file,
     batch_size=32,
