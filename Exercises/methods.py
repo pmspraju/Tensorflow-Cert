@@ -141,3 +141,30 @@ class HuberLoss(tf.keras.losses.Loss):
     def get_config(self):
         base_config = super().get_config()
         return {**base_config, "threshold": self.threshold}
+
+
+def pack_row(*row):
+    try:
+        label = row[0]
+        features = tf.stack(row[1:], 1)
+        return features, label
+    except Exception as ex:
+        print("-----------------------------------------------------------------------")
+        template = "An exception of type {0} occurred. Arguments:\n{1!r}"
+        message = template.format(type(ex).__name__, ex.args)
+        print(message)
+
+
+def ds_shape(dataset):
+    try:
+        # Get the number of Features.
+        for row in dataset.take(1):
+            print('Number of features', len(row))
+        # Get the number of examples. Too large dataset
+        it = (iter(dataset))
+        print(sum(1 for _ in it))
+    except Exception as ex:
+        print("-----------------------------------------------------------------------")
+        template = "An exception of type {0} occurred. Arguments:\n{1!r}"
+        message = template.format(type(ex).__name__, ex.args)
+        print(message)
