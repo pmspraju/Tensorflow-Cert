@@ -162,7 +162,7 @@ def ds_shape(dataset):
             print('Number of features', len(row))
         # Get the number of examples. Too large dataset
         it = (iter(dataset))
-        print(sum(1 for _ in it))
+        print('Number of examples', sum(1 for _ in it))
     except Exception as ex:
         print("-----------------------------------------------------------------------")
         template = "An exception of type {0} occurred. Arguments:\n{1!r}"
@@ -250,3 +250,33 @@ class CustomTraining(RnnModel):
         self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
 
         return {'loss': loss}
+
+
+class TimeSeriesModel(tf.keras.Model):
+    def __init__(self, filters, kernel_size, strides, padding, activation, return_sequences):
+        super().__init__(self)
+        self.conv1D = tf.keras.layers.Conv1D(filters=filters, kernel_size=kernel_size,
+                      strides=strides, padding=padding,
+                      activation=activation,
+                      input_shape=[None, 1])
+        self.lstm = tf.keras.layers.LSTM(60, return_sequences=return_sequences)
+        self.lstm1 = tf.keras.layers.LSTM(60, return_sequences=return_sequences)
+        self.dense1 = tf.keras.layers.Dense(30, activation=activation)
+        self.dense2 = tf.keras.layers.Dense(10, activation=activation)
+        self.dense3 = tf.keras.layers.Dense(1)
+        self.lmbda = tf.keras.layers.Lambda(lambda y: y * 400)
+
+    def call(self, inputs, training=False):
+        x = self.conv1D(inputs, training=training)
+        x = self.lstm(x, training=training)
+        x = self.lstm1(x, training=training)
+        x = self.dense1(x, training=training)
+        x = self.dense2(x, training=training)
+        x = self.dense3(x, training=training)
+        x = self.lmbda(x, training=training)
+
+        return x
+
+    def build_graph(self):
+        inp = tf.keras.Input(shape=(None, 1))
+        return tf.keras.Model(inputs=[inp], outputs=self.call(inp))
