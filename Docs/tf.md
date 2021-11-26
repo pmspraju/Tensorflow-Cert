@@ -20,11 +20,12 @@ shuffle() -
 dataset = dataset.shuffle(buffer_size=10)  
   
 prefetch() -   
-dataset = dataset.batch(2).prefetch(1)  
+dataset = dataset.batch(2).prefetch(1) 
+''' 
 for x,y in dataset:  
   print("x = ", x.numpy())   
   print("y = ", y.numpy())  
-  
+'''  
   
 from_tensor_slices() -   
 X = tf.range(10)  
