@@ -5,6 +5,11 @@
 
 range() -   
 ``` dataset = tf.data.Dataset.range(10)```  
+
+element_spec - 
+```
+dataset.element_spec
+```
   
 window() -   
 ```dataset = dataset.window(5, shift=1, drop_remainder=True)```  
@@ -33,7 +38,18 @@ X = tf.range(10)
 tf.data.Dataset.from_tensor_slices(X)  
 ```
 
+expand_dims()
+```
+image = tf.zeros([10,10,3])
+tf.expand_dims(image, axis=0).shape.as_list()
+tf.expand_dims(image, axis=1).shape.as_list()
+tf.expand_dims(image, -1).shape.as_list()
+```
 
+as_numpy_iterator() - 
+```
+for item in dataset.as_numpy_iterator():
+  print(item)
+```
 
-  
 
