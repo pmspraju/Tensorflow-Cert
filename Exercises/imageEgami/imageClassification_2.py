@@ -217,5 +217,5 @@ for file in flist:
     else:
         print(file + " is a cat")
 
-# img = os.path.join(train_dogs_dir,random.choice(train_dog_fnames))
-# visIntermediate(loadModel,img)
+#img = os.path.join(train_dogs_dir,random.choice(train_dog_fnames))
+#visIntermediate(loadModel,img)

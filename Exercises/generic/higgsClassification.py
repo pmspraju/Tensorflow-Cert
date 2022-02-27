@@ -23,7 +23,7 @@ tflogdir = os.path.join(logdir, 'tensorboard_logs')
 shutil.rmtree(tflogdir, ignore_errors=True)
 
 # Download the dataset if not already
-path = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Git\Tensorflow-Cert\Exercises\01 Data'
+path = r'/01 Data'
 folder = 'nlp'
 abs_path = os.path.join(path, folder)
 abs_path = os.path.join(abs_path, 'higgs')

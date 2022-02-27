@@ -354,6 +354,3 @@ class myCallback(tf.keras.callbacks.Callback):
     if(logs.get('accuracy')>0.97):
       print("\nReached 97.0% accuracy so cancelling training!")
       self.model.stop_training = True
-
-
-

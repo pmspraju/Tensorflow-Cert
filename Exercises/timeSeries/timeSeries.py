@@ -19,7 +19,7 @@ print(sys.version)
 
 # Read the dataset
 # Download the dataset if not already
-path = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Git\Tensorflow-Cert\Exercises\01 Data'
+path = r'/01 Data'
 folder = 'ts'
 abs_path = os.path.join(path, folder)
 abs_path = os.path.join(abs_path, 'temp')
@@ -182,7 +182,7 @@ cmodel.compile(loss=tf.keras.losses.Huber(),
 #history = cmodel.fit(train_set, epochs=150, callbacks=[lr_schedule])
 history = cmodel.fit(train_set,epochs=150)
 
-tf.keras.utils.plot_model(cmodel.build_graph(), "custom_model.png", show_shapes=True, rankdir="TB")
+tf.keras.utils.plot_model(cmodel.build_graph(), "../TextClassification/custom_model.png", show_shapes=True, rankdir="TB")
 cmodel.summary()
 # plt.semilogx(history.history["lr"], history.history["loss"])
 # plt.axis([1e-8, 1e-4, 0, 60])
