@@ -8,6 +8,9 @@ from tensorflow.keras.layers.experimental import preprocessing
 import numpy as np
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
+import random
+from random import randint
+import os
 
 # A method to clean the text from punctuation
 def custom_standardization(input_data):
@@ -354,3 +357,47 @@ class myCallback(tf.keras.callbacks.Callback):
     if(logs.get('accuracy')>0.97):
       print("\nReached 97.0% accuracy so cancelling training!")
       self.model.stop_training = True
+
+def layerOutputs(model, sample_image, ipath):
+    # Let's define a new Model that will take an image as input, and will output
+    # intermediate representations for all layers in the previous model after
+    # the first.
+    successive_outputs = [layer.output for layer in model.layers[1:]]
+
+    # visualization_model = Model(img_input, successive_outputs)
+    visualization_model = tf.keras.models.Model(inputs=model.input, outputs=successive_outputs)
+
+    # Let's run our image through our network, thus obtaining all
+    # intermediate representations for this image.
+    successive_feature_maps = visualization_model.predict(sample_image[tf.newaxis, ...])
+
+    # These are the names of the layers, so can have them as part of our plot
+    layer_names = [layer.name for layer in model.layers]
+
+    for layerName, feature in zip(layer_names, successive_feature_maps):
+
+        if('conv2d' not in layerName):
+            continue
+
+        n_features = feature.shape[-1] # number of feature maps
+        size       = feature.shape[1] # size of each feature map
+        grid_size  = np.zeros((size, size * n_features))
+
+        for i in range(n_features):
+            x = feature[0,:,:,i]
+            x -= x.mean()
+            #x /= x.std()
+            x *= 64
+            x += 128
+            x = np.clip(x, 0, 255).astype('uint8')
+            grid_size[:, i * size: (i + 1) * size] = x  # Tile each filter into a horizontal grid
+
+        scale = 20. / n_features
+        f = plt.figure(figsize=(scale * n_features, scale))
+        plt.title(layerName)
+        plt.grid(False)
+        plt.imshow(grid_size, aspect='auto', cmap='viridis')
+        #plt.show()
+        iname = layerName + '.png'
+        f.savefig(os.path.join(ipath, iname), bbox_inches='tight')
+        plt.close(f)

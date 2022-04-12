@@ -6,8 +6,9 @@
 import os
 import sys
 import random
+from random import randint
 import constants as cn
-from methods import myCallback
+from methods import myCallback, layerOutputs
 
 import tensorflow as tf
 from tensorflow import keras
@@ -19,6 +20,8 @@ import matplotlib.pyplot as plt
 
 # Download he datasets from tfds
 dataset, info = tfds.load(cn.oxfort_dataset, with_info=True)
+ipath = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Data\images'
+mpath = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Saved_Models\Models\3'
 
 # Load the image from the dataset
 def load_image(datapoint):
@@ -67,7 +70,7 @@ train_batches = (
 test_batches = test_dataset.batch(BATCH_SIZE)
 
 def display(display_list):
-  plt.figure(figsize=(15, 15))
+  f = plt.figure(figsize=(15, 15))
 
   title = ['Input Image', 'True Mask', 'Predicted Mask']
 
@@ -76,7 +79,10 @@ def display(display_list):
     plt.title(title[i] + ' with shape ' +str(display_list[i].shape.as_list()))
     plt.imshow(tf.keras.utils.array_to_img(display_list[i]))
     plt.axis('off')
-  plt.show()
+  #plt.show()
+  iname = 's'+str(randint(1,4))+'.png'
+  f.savefig(os.path.join(ipath,iname), bbox_inches='tight')
+  plt.close(f)
 
 for images, masks in train_batches.take(2):
     sample_image, sample_mask = images[0], masks[0]
@@ -227,7 +233,7 @@ outputs = tf.keras.layers.Conv2D(filters=OUTPUT_CLASSES,
 model = tf.keras.Model(inputs, outputs, name="unet")
 model.summary()
 
-epochs = 1
+epochs = 5
 STEPS_PER_EPOCH = TRAIN_LENGTH // BATCH_SIZE
 VAL_SUBSPLITS = 5
 VALIDATION_STEPS = info.splits['test'].num_examples//BATCH_SIZE//VAL_SUBSPLITS
@@ -242,13 +248,14 @@ def create_mask(pred_mask):
     '''predicted mask is or 3 channels, one for each class
        create the mask having maximum value on the channel axis
        so argmax on last dimension of the predicted mask '''
-    print(pred_mask[:, :, 1])
-    print(pred_mask[:, :, 2])
-    print(pred_mask[:, :, 3])
-    pred_mask = tf.argmax(pred_mask, axis= -1)
+    #print(pred_mask[:, :, 1])
+    #print(pred_mask[:, :, 2])
+    #print(pred_mask[:, :, 3])
+    #pred_mask = tf.argmax(pred_mask, axis= -1)
+    pred_mask = tf.reduce_max(pred_mask, axis=-1)
     # Add the new dimension to the above mask
     pred_mask = pred_mask[..., tf.newaxis]
-    print(pred_mask)
+    #print(pred_mask)
     return pred_mask[0] # first image of the batch
 
 class DisplayCallback(tf.keras.callbacks.Callback):
@@ -263,17 +270,18 @@ class DisplayCallback(tf.keras.callbacks.Callback):
 
 callbacks = DisplayCallback()
 
-# history = model.fit(train_batches,
-#                     epochs=epochs,
-#                     callbacks=callbacks,
-#                     validation_data=test_batches,
-#                     steps_per_epoch=STEPS_PER_EPOCH,
-#                     validation_steps=VALIDATION_STEPS
-#                     )
+history = model.fit(train_batches,
+                    epochs=epochs,
+                    callbacks=callbacks,
+                    validation_data=test_batches,
+                    steps_per_epoch=STEPS_PER_EPOCH,
+                    validation_steps=VALIDATION_STEPS
+                    )
 
-mpath = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Saved_Models\Models\3'
 saveModel = os.path.join(mpath,'is_0')
-#model.save(saveModel, include_optimizer=False)
+model.save(saveModel, include_optimizer=False)
+
+layerOutputs(model, sample_image, ipath)
 
 #-----------------------------------------------------------
 # Retrieve a list of list results on training and test data
@@ -303,20 +311,8 @@ saveModel = os.path.join(mpath,'is_0')
 # plt.show()
 
 # Load the saved model
-loadModel = tf.saved_model.load(saveModel)
-loadModel = loadModel.signatures["serving_default"]
-
-# Let's define a new Model that will take an image as input, and will output
-# intermediate representations for all layers in the previous model after
-# the first.
-successive_outputs = [layer.output for layer in loadModel.layers[1:]]
-
-#visualization_model = Model(img_input, successive_outputs)
-visualization_model = tf.keras.models.Model(inputs = loadModel.input, outputs = successive_outputs)
-
-# Let's run our image through our network, thus obtaining all
-# intermediate representations for this image.
-successive_feature_maps = visualization_model.predict(sample_image[tf.newaxis, ...])
+# loadModel = tf.saved_model.load(saveModel)
+# loadModel = loadModel.signatures["serving_default"]
 
 
 
