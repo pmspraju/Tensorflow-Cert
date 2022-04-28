@@ -104,6 +104,10 @@ input_text_processor.adapt(inp)
 output_text_processor.adapt(targ)
 example_tokens = input_text_processor(inpBatch)
 
+print('Example batch vocabulary size:{}'.format(input_text_processor.vocabulary_size()))
+print('Shape of the tokens:{}'.format(tf.shape(example_tokens).numpy()))
+print('Rank of the tokens:{}'.format(tf.rank(example_tokens).numpy()))
+
 plt.subplot(1, 2, 1)
 plt.pcolormesh(example_tokens)
 plt.title('Token IDs')
@@ -113,3 +117,57 @@ plt.pcolormesh(example_tokens != 0)
 plt.title('Mask')
 plt.show()
 ###############################################################################
+# Encoder architecture
+# For text translation, we use encoder-decoder model with attention.
+# Because, for translation, the size of the input need not be same as output
+# Takes the input sequence and provies us with a context
+class Encoder(tf.keras.layers.Layer):
+    def __init__(self, input_vocab_size, embedding_dim, enc_units, **kwargs):
+        super(Encoder, self).__init__(**kwargs)
+        self.enc_units = enc_units # Number of RNN units
+        self.input_vocab_size = input_vocab_size # Input vocabulary size
+
+        # The embedding layer converts sequence of tokens to sequence of vectors
+        # tokens = [1, 2, 3] -> embedded to = [[2,4,5..embedding_dim], [4,1,3..embedding_dim], [4,5,2..embedding_dim]]
+        self.embedding = tf.keras.layers.Embedding(self.input_vocab_size,
+                                                   embedding_dim)
+
+        # The GRU RNN layer processes those vectors sequentially.
+        self.gru = tf.keras.layers.GRU(self.enc_units,
+                                       # Return the sequence and state
+                                       return_sequences=True,
+                                       return_state=True,
+                                       recurrent_initializer='glorot_uniform')
+
+    def call(self, tokens, state=None):
+
+        #1 tokens shape - ('batch', 's')
+
+        # 2. The embedding layer looks up the embedding for each token.
+        vectors = self.embedding(tokens) # ('batch', 's', 'embed_dim')
+
+        # 3. The GRU processes the embedding sequence.
+        #    output shape: (batch, s, enc_units)
+        #    state shape: (batch, enc_units)
+        output, state = self.gru(vectors, initial_state=state)
+
+        # 4. Returns the new sequence and its state.
+        return output, state , vectors
+
+# Test the encoder class on the example input batch
+# Convert the input text to tokens.
+
+embedding_dim = 256
+units = 1024
+
+# Encode the input sequence.
+encoder = Encoder(input_text_processor.vocabulary_size(),
+                  embedding_dim, units)
+example_enc_output, example_enc_state, embedded_vectors = encoder(example_tokens)
+
+print(f'Input batch, shape (batch): {inpBatch.shape}')
+print(f'Input batch tokens, shape (batch, s): {example_tokens.shape}')
+print('Embedded tokens shape, shape (batch, s, embedded_dim):{}'.format(tf.shape(embedded_vectors).numpy()))
+print(f'Encoder output, shape (batch, s, units): {example_enc_output.shape}')
+print(f'Encoder state, shape (batch, units): {example_enc_state.shape}')
+
