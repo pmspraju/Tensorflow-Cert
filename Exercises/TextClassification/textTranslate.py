@@ -318,6 +318,8 @@ class Decoder(tf.keras.layers.Layer):
 example_output_tokens = output_text_processor(targBatch)
 start_index = output_text_processor.get_vocabulary().index('[START]')
 first_token = tf.constant([[start_index]] * example_output_tokens.shape[0])
+print(f'example_output_tokens:{example_output_tokens}')
+print(f'First token:{first_token}')
 
 # Initialize the decoder
 decoder = Decoder(output_text_processor.vocabulary_size(),
@@ -333,3 +335,25 @@ dec_result, dec_state = decoder(
 
 print(f'logits shape: (batch_size, t, output_vocab_size) {dec_result.logits.shape}')
 print(f'state shape: (batch_size, dec_units) {dec_state.shape}')
+
+#Sample a token according to the logits:
+sampled_token = tf.random.categorical(dec_result.logits[:, 0, :], num_samples=1)
+#Decode the token as the first word of the output:
+vocab = np.array(output_text_processor.get_vocabulary())
+first_word = vocab[sampled_token.numpy()]
+print(first_word[:5])
+
+#Now use the decoder to generate a second set of logits.
+#Pass the same enc_output and mask, these haven't changed.
+#Pass the sampled token as new_tokens. Pass the decoder_state the
+# decoder returned last time, so the RNN continues with a
+# memory of where it left off last time.
+dec_result, dec_state = decoder(
+    DecoderInput(sampled_token,
+                 example_enc_output,
+                 mask=(example_tokens != 0)),
+    state=dec_state)
+
+sampled_token = tf.random.categorical(dec_result.logits[:, 0, :], num_samples=1)
+first_word = vocab[sampled_token.numpy()]
+print(first_word[:5])
