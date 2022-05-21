@@ -3,6 +3,7 @@
 ############################################
 # Dataset:  http://www.manythings.org/anki/#
 ############################################
+import time
 import numpy as np
 import typing
 from typing import Any, Tuple
@@ -284,7 +285,7 @@ class Decoder(tf.keras.layers.Layer):
         print('######## Decoder shapes ########')
         # Step 1. Lookup the embeddings
         vectors = self.embedding(inputs.new_tokens)
-        print('Embedded tokens shape, shape (batch, t, embedding_dim):{}'.format(tf.shape(vectors).numpy()))
+        print('Embedded tokens shape, shape (batch, t, embedding_dim):{}'.format(tf.shape(vectors)))
 
         # Step 2. Process one step with the RNN
         rnn_output, state = self.gru(vectors, initial_state=state)
@@ -357,3 +358,233 @@ dec_result, dec_state = decoder(
 sampled_token = tf.random.categorical(dec_result.logits[:, 0, :], num_samples=1)
 first_word = vocab[sampled_token.numpy()]
 print(first_word[:5])
+
+###############################################################################
+# Training - we need
+# A loss function and optimizer to perform the optimization.
+# A training step function defining how to update the model for each input/target batch.
+# A training loop to drive the training and save checkpoints.
+
+# Loss function - since we use logits, sparse Categorical cross entropy is used as base
+# function
+class MaskedLoss(tf.keras.losses.Loss):
+    def __init__(self):
+        self.name = 'masked_loss'
+        self.loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction='none')
+
+    def __call__(self, y_true, y_pred):
+        # Calculate the loss for each item in the batch.
+        loss = self.loss(y_true, y_pred)
+        print(f'Shape of loss, (batch, t):{loss.shape}')
+
+        # Mask off the losses on padding.
+        mask = tf.cast(y_true != 0, tf.float32)
+        print(f'shape of mask, (batch, t):{mask.shape}')
+        loss *= mask
+
+        # Return the total.
+        return tf.reduce_sum(loss)
+
+# Implement the training step
+# Design the main Training class
+class TrainTranslator(tf.keras.Model):
+    def __init__(self, embedding_dim, units, input_text_processor,output_text_processor, use_tf_function=True):
+        super().__init__()
+        # Build the encoder and decoder, declare the objects
+        encoder = Encoder(input_text_processor.vocabulary_size(),
+                          embedding_dim, units)
+        decoder = Decoder(output_text_processor.vocabulary_size(),
+                          embedding_dim, units)
+
+        self.encoder = encoder
+        self.decoder = decoder
+        self.input_text_processor = input_text_processor
+        self.output_text_processor = output_text_processor
+        self.use_tf_function = use_tf_function
+
+    # This is a wrapper of the original train step method
+    def train_step(self, inputs):
+        if self.use_tf_function:
+            return self._tf_train_step(inputs)
+        else:
+            return self._train_step(inputs)
+
+# Preprocessing involves below steps.
+# Receive a batch of input_text, target_text from the tf.data.Dataset.
+# Convert those raw text inputs to token-embeddings and masks.
+# Input - takes raw input(spanish) and target(english) in batches.
+def _preprocess(self, input_text, target_text):
+    # Convert the text to token IDs
+    input_tokens = self.input_text_processor(input_text)
+    print(f'input_tokens shape, (batch, s):{input_tokens.shape}')
+
+    target_tokens = self.output_text_processor(target_text)
+    print(f'target_tokens, (batch, t):{target_tokens.shape}')
+
+    # Convert IDs to masks.
+    input_mask = input_tokens != 0
+    target_mask = target_tokens != 0
+
+    return input_tokens, input_mask, target_tokens, target_mask
+
+TrainTranslator._preprocess = _preprocess
+
+#Run the encoder on the input_tokens to get the encoder_output and encoder_state.
+#Initialize the decoder state and loss.
+#Loop over the target_tokens:
+#Run the decoder one step at a time.
+#Calculate the loss for each step.
+#Accumulate the average loss.
+#Calculate the gradient of the loss and use the optimizer to apply updates to the model's trainable_variables.
+def _train_step(self, inputs):
+  input_text, target_text = inputs
+
+  (input_tokens, input_mask,
+   target_tokens, target_mask) = self._preprocess(input_text, target_text)
+
+  max_target_length = tf.shape(target_tokens)[1]
+
+  with tf.GradientTape() as tape:
+    # Encode the input
+    enc_output, enc_state, enc_embed_vec = self.encoder(input_tokens)
+    print(f'Encoder output shape, (batch, s, enc_units):{enc_output.shape}')
+    print(f'Encoder state shape, (batch, enc_units):{enc_state.shape}')
+
+    # Initialize the decoder's state to the encoder's final state.
+    # This only works if the encoder and decoder have the same number of
+    # units.
+    dec_state = enc_state
+    loss = tf.constant(0.0)
+
+    for t in tf.range(max_target_length-1):
+      # Pass in two tokens from the target sequence:
+      # 1. The current input to the decoder.
+      # 2. The target for the decoder's next prediction.
+      new_tokens = target_tokens[:, t:t+2]
+      step_loss, dec_state = self._loop_step(new_tokens, input_mask,
+                                             enc_output, dec_state)
+      loss = loss + step_loss
+
+    # Average the loss over all non padding tokens.
+    average_loss = loss / tf.reduce_sum(tf.cast(target_mask, tf.float32))
+
+  # Apply an optimization step
+  variables = self.trainable_variables
+  #print(f'Trainable variables shape:{variables.shape}')
+
+  gradients = tape.gradient(average_loss, variables)
+  #print(f'Gradients shape:{gradients.shape}')
+  self.optimizer.apply_gradients(zip(gradients, variables))
+
+  # Return a dict mapping metric names to current value
+  return {'batch_loss': average_loss}
+
+TrainTranslator._train_step = _train_step
+
+# The _loop_step method, added below, executes the decoder and
+# calculates the incremental loss and new decoder state (dec_state).
+def _loop_step(self, new_tokens, input_mask, enc_output, dec_state):
+  input_token, target_token = new_tokens[:, 0:1], new_tokens[:, 1:2]
+
+  # Run the decoder one step.
+  decoder_input = DecoderInput(new_tokens=input_token,
+                               enc_output=enc_output,
+                               mask=input_mask)
+
+  dec_result, dec_state = self.decoder(decoder_input, state=dec_state)
+  print(f'Logits shape, (batch, t1, logits):{dec_result.logits.shape}')
+  print(f'Attention_weights shape, (batch, t1, s){dec_result.attention_weights.shape}')
+  print(f'Decoder state shape, (batch, dec_unit):{dec_state.shape}')
+
+  # `self.loss` returns the total for non-padded tokens
+  y = target_token
+  y_pred = dec_result.logits
+  step_loss = self.loss(y, y_pred)
+
+  return step_loss, dec_state
+
+TrainTranslator._loop_step = _loop_step
+
+#Test the training step
+translator = TrainTranslator(
+    embedding_dim, units,
+    input_text_processor=input_text_processor,
+    output_text_processor=output_text_processor,
+    use_tf_function=False)
+
+# Configure the loss and optimizer
+translator.compile(
+    optimizer=tf.optimizers.Adam(),
+    loss=MaskedLoss(),
+)
+
+#%%time
+# print('##### Test Training print #####')
+# start = time.time()
+# for n in range(10):
+#   print(translator.train_step([inpBatch, targBatch]))
+# end = time.time()
+# print(f'Elapsed time for normal time step:{end - start}') #21.98
+
+# Make the train step function as tensorflow function.
+# this gives a performance boost and makes the function faster.
+# Without tf.function - 21.98; With tf.function - 15.96
+@tf.function(input_signature=[[tf.TensorSpec(dtype=tf.string, shape=[None]),
+                               tf.TensorSpec(dtype=tf.string, shape=[None])]])
+def _tf_train_step(self, inputs):
+  return self._train_step(inputs)
+
+TrainTranslator._tf_train_step = _tf_train_step
+translator.use_tf_function = True
+
+# start = time.time()
+# for n in range(10):
+#   print(translator.train_step([inpBatch, targBatch]))
+# end = time.time()
+# print(f'Elapsed time for time step as tf.function:{end - start}') #15.96
+# print()
+
+# Plot the losses
+# losses = []
+# for n in range(100):
+#   print('.', end='')
+#   logs = translator.train_step([inpBatch, targBatch])
+#   losses.append(logs['batch_loss'].numpy())
+#
+# print()
+# plt.plot(losses)
+# plt.show()
+
+# In the above steps we we tested our translator function.
+# Train the model from the scratch
+train_translator = TrainTranslator(
+    embedding_dim, units,
+    input_text_processor=input_text_processor,
+    output_text_processor=output_text_processor)
+
+# Configure the loss and optimizer
+train_translator.compile(
+    optimizer=tf.optimizers.Adam(),
+    loss=MaskedLoss(),
+)
+
+# Create the callbacks
+class BatchLogs(tf.keras.callbacks.Callback):
+  def __init__(self, key):
+    self.key = key
+    self.logs = []
+
+  def on_train_batch_end(self, n, logs):
+    self.logs.append(logs[self.key])
+
+batch_loss = BatchLogs('batch_loss')
+
+# Fit the model. This calls the train_step and eventually _tf_train_step
+train_translator.fit(dataset, epochs=3,
+                     callbacks=[batch_loss])
+
+plt.plot(batch_loss.logs)
+plt.ylim([0, 3])
+plt.xlabel('Batch #')
+plt.ylabel('CE/token')
+plt.show()
