@@ -36,7 +36,7 @@ def missingValues(data):
         # Rename the columns
         mis_val_table_ren_columns = mis_val_table.rename(
             columns={0: 'Missing Values', 1: '% of Total Values'})
-        mis_val_table_ren_columns.head(4)
+        #mis_val_table_ren_columns.head(4)
         # Sort the table by percentage of missing descending
         misVal = mis_val_table_ren_columns[
             mis_val_table_ren_columns.iloc[:, 1] != 0].sort_values(
