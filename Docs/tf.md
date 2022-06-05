@@ -52,4 +52,28 @@ for item in dataset.as_numpy_iterator():
   print(item)
 ```
 
+numpy_function() - Given a python function func wrap this function as an operation in a TensorFlow function. func must take numpy arrays as its arguments and return numpy arrays as its outputs. You are discouraged to use tf.numpy_function outside of prototyping and experimentation.
+
+```
+tf.numpy_function(
+    func, inp, Tout, stateful=True, name=None
+)
+
+dataset = dataset.map(lambda item1, item2: tf.numpy_function(
+          map_func, [item1, item2], [tf.float32, tf.int64]),
+          num_parallel_calls=tf.data.AUTOTUNE)
+
+```
+
+reduce_sum() - Computes the sum of elements across dimensions of a tensor.
+
+```
+tf.math.reduce_sum(
+    input_tensor, axis=None, keepdims=False, name=None
+)
+
+x = tf.constant([[1, 1, 1], [1, 1, 1]])
+tf.reduce_sum(x, 0).numpy()
+Output - the result is [1, 1, 1] + [1, 1, 1] = [2, 2, 2]
+```
 
