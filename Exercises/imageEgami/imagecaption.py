@@ -356,26 +356,166 @@ class RNN_Decoder(tf.keras.Model):
 
     # x shape after passing through embedding == (batch_size, 1, embedding_dim)
     x = self.embedding(x)
+    #print(f'Shape of target after embedding:{x.shape}')
 
     # x shape after concatenation == (batch_size, 1, embedding_dim + hidden_size)
     x = tf.concat([tf.expand_dims(context_vector, 1), x], axis=-1)
+    #print(f'Shape of target after concatinating embed vector and hidden state:{x.shape}')
 
     # passing the concatenated vector to the GRU
     output, state = self.gru(x)
+    #print(f'Shape of the output:{output.shape}')
+    #print(f'Shape of the state:{state.shape}')
 
     # shape == (batch_size, max_length, hidden_size)
     x = self.fc1(output)
+    #print(f'Output share from dense layer:{x.shape}')
 
     # x shape == (batch_size * max_length, hidden_size)
     x = tf.reshape(x, (-1, x.shape[2]))
+    #print(f'Output share from dense layer after reshape:{x.shape}')
 
     # output shape == (batch_size * max_length, vocab)
     x = self.fc2(x)
+    #print(f'Output share from dense layer with logits:{x.shape}')
 
     return x, state, attention_weights
 
   def reset_state(self, batch_size):
     return tf.zeros((batch_size, self.units))
 
+# Instantiate encoder and decoder objects
+encoder = CNN_Encoder(embedding_dim)
+decoder = RNN_Decoder(embedding_dim, units, tokenizer.vocabulary_size())
+
+# Test the decoder
+# for (batch, (img_tensor, target)) in enumerate(dataset):
+#     features = encoder(img_tensor)
+#     break
+# hidden = decoder.reset_state(batch_size=target.shape[0])
+# dec_input = tf.expand_dims([word_to_index('<start>')] * target.shape[0], 1)
+# predictions, hidden, _ = decoder(dec_input, features, hidden)
+
+# Shape of target after embedding:(64, 1, 256)
+# - Embedding dimension = 256, one target sentence is tokenized in to a vector
+# - Tokenized vector is  then converted to embedded vector of dimension = embed_size = 256
+# - One batch of 64 sentences. One sentence represented as a vector of size 256.
+# [ [ [1,2,3..256] ],
+#   [ [1,2,3..256] ],
+#   [ [1,2,3..256] ]....64]
+
+# Shape of target after concatinating embed vector and hidden state:(64, 1, 512)
+# - In the paper it is mentioned - "In this work, we use a deep output layer (Pascanu et al.,
+# 2014) to compute the output word probability given the
+# LSTM state, the context vector and the previous word"
+# We concatenate and current (time step) target and context vector (which is the result of attention).
+# Attention is consider previous hidden state.
+# - Target size = (64, 1, 256) (after embedding)
+# - Context vector = (64, 256)=> tf.expand_dims(context_vector, 1) = (64,1,256)
+# - tf.concat([tf.expand_dims(context_vector, 1), x], axis=-1) = (64, 1, 256+256) = (64,1,512)
+
+# Shape of the output:(64, 1, 512)
+# - GRU has 512 units.
+# Input - (64,1,512) ; Output - (64,1,512)
+
+# Shape of the state:(64, 512)
+# - State is the gist of entire time step.
+
+# Output share from dense layer:(64, 1, 512)
+# - Dense layer fc1 has 512 units.
+# - Input (64,1,512); Output - (64,1,512)
+
+# Output share from dense layer after reshape:(64, 512)
+# - We are trying to predict the conditional probability of the given target word.
+# - Decoder predicts a word, for one time step, taking the context vector and input features.
+# - This dense layer provide a vector of 512 for each image in the batch
+
+# Output share from dense layer with logits:(64, 5000)
+# - We have a corpus of maximum 5000 words. We use a beam search or softmax to
+#   deduce the word with maximum probablity.
+# - We use another dense to ouput a vector of 5000 for each image in the batch.
+
+# Define the optimizer.
+optimizer = tf.keras.optimizers.Adam()
+loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
+    from_logits=True, reduction='none')
 
 
+# Define the loss function.
+def loss_function(real, pred):
+  mask = tf.math.logical_not(tf.math.equal(real, 0))
+  loss_ = loss_object(real, pred)
+
+  mask = tf.cast(mask, dtype=loss_.dtype)
+  loss_ *= mask
+
+  return tf.reduce_mean(loss_)
+
+# Logic to set checkpoints during training.
+checkpoint_path = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Saved_Models\Checkpoints\4'
+ckpt = tf.train.Checkpoint(encoder=encoder,
+                           decoder=decoder,
+                           optimizer=optimizer)
+ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
+
+start_epoch = 0
+if ckpt_manager.latest_checkpoint:
+  start_epoch = int(ckpt_manager.latest_checkpoint.split('-')[-1])
+  # restoring the latest checkpoint in checkpoint_path
+  ckpt.restore(ckpt_manager.latest_checkpoint)
+
+##############
+# Training   #
+##############
+# adding this in a separate cell because if you run the training cell
+# many times, the loss_plot array will be reset
+loss_plot = []
+
+@tf.function
+def train_step(img_tensor, target):
+  loss = 0
+
+  # You extract the features stored in the respective .npy files - Image tensor
+
+  # initializing the hidden state for each batch
+  # because the captions are not related from image to image
+  hidden = decoder.reset_state(batch_size=target.shape[0])
+
+  #the  decoder input(which is the start token) is passed to the decoder.
+  dec_input = tf.expand_dims([word_to_index('<start>')] * target.shape[0], 1)
+
+  with tf.GradientTape() as tape:
+      features = encoder(img_tensor)
+
+      for i in range(1, target.shape[1]):
+          # passing the features through the decoder.
+          # The decoder returns the predictions and the decoder hidden state.
+          # The decoder hidden state is then passed back into the model
+          predictions, hidden, _ = decoder(dec_input, features, hidden)
+
+          # predictions are used to calculate the loss.
+          loss += loss_function(target[:, i], predictions)
+
+          # using teacher forcing
+          # Use teacher forcing to decide the next input to the decoder.
+          # Teacher forcing is the technique where the target word is passed as the next input to the decoder.
+          dec_input = tf.expand_dims(target[:, i], 1)
+
+  total_loss = (loss / int(target.shape[1]))
+
+  trainable_variables = encoder.trainable_variables + decoder.trainable_variables
+
+  gradients = tape.gradient(loss, trainable_variables)
+  # The final step is to calculate the gradients and apply it to the optimizer and backpropagate.
+  optimizer.apply_gradients(zip(gradients, trainable_variables))
+
+  return loss, total_loss
+
+# Test the Train step
+# Total loss for test Train step:1.8630383014678955
+total_loss = 0
+for (batch, (img_tensor, target)) in enumerate(dataset):
+    batch_loss, t_loss = train_step(img_tensor, target)
+    total_loss += t_loss
+    break
+print(f'Total loss for test Train step:{total_loss}')
