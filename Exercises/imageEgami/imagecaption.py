@@ -444,6 +444,7 @@ loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
 # Define the loss function.
 def loss_function(real, pred):
   mask = tf.math.logical_not(tf.math.equal(real, 0))
+
   loss_ = loss_object(real, pred)
 
   mask = tf.cast(mask, dtype=loss_.dtype)
@@ -493,6 +494,9 @@ def train_step(img_tensor, target):
           # The decoder hidden state is then passed back into the model
           predictions, hidden, _ = decoder(dec_input, features, hidden)
 
+          #print(f'Target shape:{target.shape}')
+          #print(f'Predictions shape:{predictions.shape}')
+
           # predictions are used to calculate the loss.
           loss += loss_function(target[:, i], predictions)
 
@@ -513,9 +517,133 @@ def train_step(img_tensor, target):
 
 # Test the Train step
 # Total loss for test Train step:1.8630383014678955
-total_loss = 0
-for (batch, (img_tensor, target)) in enumerate(dataset):
-    batch_loss, t_loss = train_step(img_tensor, target)
-    total_loss += t_loss
-    break
-print(f'Total loss for test Train step:{total_loss}')
+# total_loss = 0
+# for (batch, (img_tensor, target)) in enumerate(dataset):
+#     batch_loss, t_loss = train_step(img_tensor, target)
+#     total_loss += t_loss
+#     break
+# print(f'Total loss for test Train step:{total_loss}')
+
+# Target shape:(64, 50)
+# - Batch-size = 64; size of the target vector - 50
+# - We send integer by integer from the target vector and aggregate the loss.
+
+# Predictions shape:(64, 5000)
+# - Batch_size = 64; Each patch is given probabilities (logits) for all the classes (5000)
+# - We use SparseCategoricalCrossentropy as
+#   The shape of y_true is [batch_size]
+#   The shape of y_pred is [batch_size, num_classes]
+# - Y-pred is out of a dense layer (no softmax), so it is expected to be a logits tensor.
+
+EPOCHS = 20
+
+for epoch in range(start_epoch, EPOCHS):
+    start = time.time()
+    total_loss = 0
+
+    for (batch, (img_tensor, target)) in enumerate(dataset):
+        batch_loss, t_loss = train_step(img_tensor, target)
+        total_loss += t_loss
+
+        if batch % 100 == 0:
+            average_batch_loss = batch_loss.numpy()/int(target.shape[1])
+            print(f'Epoch {epoch+1} Batch {batch} Loss {average_batch_loss:.4f}')
+    # storing the epoch end loss value to plot later
+    loss_plot.append(total_loss / num_steps)
+
+    if epoch % 5 == 0:
+      ckpt_manager.save()
+
+    print(f'Epoch {epoch+1} Loss {total_loss/num_steps:.6f}')
+    print(f'Time taken for 1 epoch {time.time()-start:.2f} sec\n')
+
+class Translator(tf.Module):
+
+  def __init__(self, encoder, decoder):
+    self.encoder = encoder
+    self.decoder = decoder
+
+translator = Translator(
+    encoder= encoder,
+    decoder= decoder
+)
+
+def evaluate(self, image):
+    attention_plot = np.zeros((max_length, attention_features_shape))
+
+    hidden = self.decoder.reset_state(batch_size=1)
+
+    temp_input = tf.expand_dims(load_image(image)[0], 0)
+    img_tensor_val = image_features_extract_model(temp_input)
+    img_tensor_val = tf.reshape(img_tensor_val, (img_tensor_val.shape[0],
+                                                 -1,
+                                                 img_tensor_val.shape[3]))
+
+    features = self.encoder(img_tensor_val)
+
+    dec_input = tf.expand_dims([word_to_index('<start>')], 0)
+    result = []
+
+    for i in range(max_length):
+        predictions, hidden, attention_weights = self.decoder(dec_input,
+                                                         features,
+                                                         hidden)
+
+        attention_plot[i] = tf.reshape(attention_weights, (-1, )).numpy()
+
+        predicted_id = tf.random.categorical(predictions, 1)[0][0].numpy()
+        predicted_word = tf.compat.as_text(index_to_word(predicted_id).numpy())
+        result.append(predicted_word)
+
+        if predicted_word == '<end>':
+            return result, attention_plot
+
+        dec_input = tf.expand_dims([predicted_id], 0)
+
+    attention_plot = attention_plot[:len(result), :]
+    return result, attention_plot
+
+Translator.evaluate = evaluate
+
+def plot_attention(image, result, attention_plot):
+    temp_image = np.array(Image.open(image))
+
+    fig = plt.figure(figsize=(10, 10))
+
+    len_result = len(result)
+    for i in range(len_result):
+        temp_att = np.resize(attention_plot[i], (8, 8))
+        grid_size = max(int(np.ceil(len_result/2)), 2)
+        ax = fig.add_subplot(grid_size, grid_size, i+1)
+        ax.set_title(result[i])
+        img = ax.imshow(temp_image)
+        ax.imshow(temp_att, cmap='gray', alpha=0.6, extent=img.get_extent())
+
+    plt.tight_layout()
+    plt.show()
+
+# Test the translator
+rid = np.random.randint(0, len(img_name_val))
+image = img_name_val[rid]
+real_caption = ' '.join([tf.compat.as_text(index_to_word(i).numpy())
+                         for i in cap_val[rid] if i not in [0]])
+#tf.config.run_functions_eagerly(False)
+result, attention_plot = translator.evaluate(image = image)
+print('Real Caption:', real_caption)
+print('Prediction Caption:', ' '.join(result))
+plot_attention(image, result, attention_plot)
+
+# Tried to save the model. did not work
+#mpath = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Saved_Models\Models\6'
+#tf.saved_model.save(translator, mpath)#,
+                    #signatures={'serving_default': translator.evaluate})
+
+# reloaded = tf.saved_model.load(mpath)
+# rid = np.random.randint(0, len(img_name_val))
+# image = img_name_val[rid]
+# real_caption = ' '.join([tf.compat.as_text(index_to_word(i).numpy())
+#                          for i in cap_val[rid] if i not in [0]])
+# result, attention_plot = reloaded.evaluate(image = image)
+# print('Real Caption:', real_caption)
+# print('Prediction Caption:', ' '.join(result))
+
