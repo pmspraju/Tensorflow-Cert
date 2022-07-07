@@ -77,3 +77,9 @@ tf.reduce_sum(x, 0).numpy()
 Output - the result is [1, 1, 1] + [1, 1, 1] = [2, 2, 2]
 ```
 
+tf.merge_dims
+tf.gather
+tf.reduce_join
+tf.fill
+
+
