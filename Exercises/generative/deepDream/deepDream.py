@@ -13,6 +13,7 @@ import matplotlib as mpl
 import PIL.Image
 
 data = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Data\deepdream'
+savepath = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Data\deepdream\saved'
 
 # read an image and read it into a NumPy array.
 def read(fname, max_dim=None):
@@ -28,16 +29,18 @@ def deprocess(img):
   return tf.cast(img, tf.uint8)
 
 # Display an image
-def show(img):
+def show(img,path=None):
   im = PIL.Image.fromarray(np.array(img))
-  im.show()
-
+  if path:
+    im.save(path,'JPEG')
+  else:
+    im.show()
 
 # Downsizing the image makes it easier to work with.
 # fname = 'YellowLabradorLooking_new.jpg'
 fname = 'pp.jpg'
 original_img = read(fname, max_dim=500)
-show(original_img)
+show(original_img, os.path.join(savepath,'original.jpg'))
 
 #########################
 # Get pre-trained model #
@@ -248,6 +251,7 @@ def run_deep_dream_with_octaves(img, steps_per_octave=100, step_size=0.01,
 
   initial_shape = img.shape[:-1]
   img = tf.image.resize(img, initial_shape)
+
   for octave in octaves:
     # Scale the image based on the octave
     new_size = tf.cast(tf.convert_to_tensor(base_shape[:-1]), tf.float32)*(octave_scale**octave)
@@ -260,7 +264,8 @@ def run_deep_dream_with_octaves(img, steps_per_octave=100, step_size=0.01,
       img = tf.clip_by_value(img, -1, 1)
 
       if step % 10 == 0:
-        show(deprocess(img))
+        iname = 'image_octave{}_step{}.jpg'.format(octave,step)
+        show(deprocess(img),os.path.join(savepath,iname))
         print ("Octave {}, Step {}".format(octave, step))
 
   result = deprocess(img)
@@ -275,7 +280,7 @@ def dd_tilegradient():
   base_shape = tf.shape(img)[:-1]
   img = tf.image.resize(img, base_shape)
   img = tf.image.convert_image_dtype(img / 255.0, dtype=tf.uint8)
-  show(img)
+  show(img,os.path.join(savepath,'final.jpg'))
 
 
 # Calling only one method
