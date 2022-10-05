@@ -98,7 +98,7 @@ for pt_examples, en_examples in train_examples.batch(3).take(1):
 # )
 
 # Downloaded the model at location
-tokenModelPath = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Saved_Models\transformer'
+tokenModelPath = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Saved_Models\transformer\tokenizer'
 tokenizers = tf.saved_model.load(tokenModelPath)
 
 logging.info([item for item in dir(tokenizers.en) if not item.startswith('_')])
@@ -697,4 +697,255 @@ learning_rate = CustomSchedule(d_model)
 
 optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.9, beta_2=0.98,
                                      epsilon=1e-9)
+
+# Define the loss function
+loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
+    from_logits=True, reduction='none')
+
+def loss_function(real, pred):
+  mask = tf.math.logical_not(tf.math.equal(real, 0))
+  loss_ = loss_object(real, pred)
+
+  mask = tf.cast(mask, dtype=loss_.dtype)
+  loss_ *= mask
+
+  return tf.reduce_sum(loss_)/tf.reduce_sum(mask)
+
+
+def accuracy_function(real, pred):
+  accuracies = tf.equal(real, tf.argmax(pred, axis=2))
+
+  mask = tf.math.logical_not(tf.math.equal(real, 0))
+  accuracies = tf.math.logical_and(mask, accuracies)
+
+  accuracies = tf.cast(accuracies, dtype=tf.float32)
+  mask = tf.cast(mask, dtype=tf.float32)
+  return tf.reduce_sum(accuracies)/tf.reduce_sum(mask)
+
+train_loss = tf.keras.metrics.Mean(name='train_loss')
+train_accuracy = tf.keras.metrics.Mean(name='train_accuracy')
+
+# Save the checkpoint while training
+#checkpoint_path = './checkpoints/train'
+checkpoint_path = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Saved_Models\Checkpoints\5'
+
+ckpt = tf.train.Checkpoint(transformer=transformer,
+                           optimizer=optimizer)
+
+ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
+
+# If a checkpoint exists, restore the latest checkpoint.
+if ckpt_manager.latest_checkpoint:
+  ckpt.restore(ckpt_manager.latest_checkpoint)
+  logging.info('> Latest checkpoint restored!!')
+
+# Define the training step
+train_step_signature = [
+    tf.TensorSpec(shape=(None, None), dtype=tf.int64),
+    tf.TensorSpec(shape=(None, None), dtype=tf.int64),
+]
+
+# The `@tf.function` trace-compiles train_step into a TF graph for faster
+# execution. The function specializes to the precise shape of the argument
+# tensors. To avoid re-tracing due to the variable sequence lengths or variable
+# batch sizes (the last batch is smaller), use input_signature to specify
+# more generic shapes.
+
+@tf.function(input_signature=train_step_signature)
+def train_step(inp, tar):
+  tar_inp = tar[:, :-1]
+  tar_real = tar[:, 1:]
+
+  with tf.GradientTape() as tape:
+    predictions, _ = transformer([inp, tar_inp],
+                                 training = True)
+    loss = loss_function(tar_real, predictions)
+
+  gradients = tape.gradient(loss, transformer.trainable_variables)
+  optimizer.apply_gradients(zip(gradients, transformer.trainable_variables))
+
+  train_loss(loss)
+  train_accuracy(accuracy_function(tar_real, predictions))
+
+EPOCHS = 20
+for epoch in range(EPOCHS):
+  start = time.time()
+
+  train_loss.reset_states()
+  train_accuracy.reset_states()
+
+  # inp -> portuguese, tar -> english
+  for (batch, (inp, tar)) in enumerate(train_batches):
+    train_step(inp, tar)
+
+    if batch % 50 == 0:
+      logging.info(f'Epoch {epoch + 1} Batch {batch} Loss {train_loss.result():.4f} Accuracy {train_accuracy.result():.4f}')
+      print(f'Epoch {epoch + 1} Batch {batch} Loss {train_loss.result():.4f} Accuracy {train_accuracy.result():.4f}')
+
+  if (epoch + 1) % 5 == 0:
+    ckpt_save_path = ckpt_manager.save()
+    logging.info(f'Saving checkpoint for epoch {epoch+1} at {ckpt_save_path}')
+
+  logging.info(f'Epoch {epoch + 1} Loss {train_loss.result():.4f} Accuracy {train_accuracy.result():.4f}')
+
+  logging.info(f'Time taken for 1 epoch: {time.time() - start:.2f} secs\n')
+
+#############
+# Inference #
+#############
+# Steps to create a translation class
+# Encode the input sentence using the Portuguese tokenizer (tokenizers.pt). This is the encoder input.
+# The decoder input is initialized to the [START] token.
+# Calculate the padding masks and the look ahead masks.
+# The decoder then outputs the predictions by looking at the encoder output and its own output (self-attention).
+# Concatenate the predicted token to the decoder input and pass it to the decoder.
+# Auto-regressive: Decoder predicts the next token based on the previous tokens it predicted.
+class Translator(tf.Module):
+  def __init__(self, tokenizers, transformer):
+    self.tokenizers = tokenizers
+    self.transformer = transformer
+
+  def __call__(self, sentence, max_length=MAX_TOKENS):
+    # The input sentence is Portuguese, hence adding the `[START]` and `[END]` tokens.
+    assert isinstance(sentence, tf.Tensor)
+    if len(sentence.shape) == 0:
+      sentence = sentence[tf.newaxis]
+
+    sentence = self.tokenizers.pt.tokenize(sentence).to_tensor()
+
+    encoder_input = sentence
+
+    # As the output language is English, initialize the output with the
+    # English `[START]` token.
+    start_end = self.tokenizers.en.tokenize([''])[0]
+    start = start_end[0][tf.newaxis]
+    end = start_end[1][tf.newaxis]
+
+    # `tf.TensorArray` is required here (instead of a Python list), so that the
+    # dynamic-loop can be traced by `tf.function`.
+    output_array = tf.TensorArray(dtype=tf.int64, size=0, dynamic_size=True)
+    output_array = output_array.write(0, start)
+
+    for i in tf.range(max_length):
+      output = tf.transpose(output_array.stack())
+      predictions, _ = self.transformer([encoder_input, output], training=False)
+
+      # Select the last token from the `seq_len` dimension.
+      predictions = predictions[:, -1:, :]  # Shape `(batch_size, 1, vocab_size)`.
+
+      predicted_id = tf.argmax(predictions, axis=-1)
+
+      # Concatenate the `predicted_id` to the output which is given to the
+      # decoder as its input.
+      output_array = output_array.write(i+1, predicted_id[0])
+
+      if predicted_id == end:
+        break
+
+    output = tf.transpose(output_array.stack())
+    # The output shape is `(1, tokens)`.
+    text = tokenizers.en.detokenize(output)[0]  # Shape: `()`.
+
+    tokens = tokenizers.en.lookup(output)[0]
+
+    # `tf.function` prevents us from using the attention_weights that were
+    # calculated on the last iteration of the loop.
+    # Therefore, recalculate them outside the loop.
+    _, attention_weights = self.transformer([encoder_input, output[:,:-1]], training=False)
+
+    return text, tokens, attention_weights
+
+# Create an instance of this Translator class
+translator = Translator(tokenizers, transformer)
+
+def print_translation(sentence, tokens, ground_truth):
+  logging.info(f'{"Input:":15s}: {sentence}')
+  logging.info(f'{"Prediction":15s}: {tokens.numpy().decode("utf-8")}')
+  logging.info(f'{"Ground truth":15s}: {ground_truth}')
+
+sentence = 'este é um problema que temos que resolver.'
+ground_truth = 'this is a problem we have to solve .'
+
+translated_text, translated_tokens, attention_weights = translator(
+    tf.constant(sentence))
+
+print_translation(sentence, translated_text, ground_truth)
+
+# Create a function that plots the attention when a token is generated:
+def plot_attention_head(in_tokens, translated_tokens, attention):
+  # The model didn't generate `<START>` in the output. Skip it.
+  translated_tokens = translated_tokens[1:]
+
+  ax = plt.gca()
+  ax.matshow(attention)
+  ax.set_xticks(range(len(in_tokens)))
+  ax.set_yticks(range(len(translated_tokens)))
+
+  labels = [label.decode('utf-8') for label in in_tokens.numpy()]
+  ax.set_xticklabels(
+      labels, rotation=90)
+
+  labels = [label.decode('utf-8') for label in translated_tokens.numpy()]
+  ax.set_yticklabels(labels)
+
+# Attention plots per each head
+head = 0
+# Shape: `(batch=1, num_attention_heads, seq_len_q, seq_len_k)`.
+attention_heads = tf.squeeze(
+  attention_weights['decoder_layer4_block2'], 0)
+attention = attention_heads[head]
+logging.info('> Attention head shape:{}'.format(attention.shape))
+
+in_tokens = tf.convert_to_tensor([sentence])
+in_tokens = tokenizers.pt.tokenize(in_tokens).to_tensor()
+in_tokens = tokenizers.pt.lookup(in_tokens)[0]
+logging.info('> Input portuguese tokens:{}'.format(in_tokens))
+logging.info('> Translated english tokens:{}'.format(translated_tokens))
+
+plot_attention_head(in_tokens, translated_tokens, attention)
+
+def plot_attention_weights(sentence, translated_tokens, attention_heads):
+  in_tokens = tf.convert_to_tensor([sentence])
+  in_tokens = tokenizers.pt.tokenize(in_tokens).to_tensor()
+  in_tokens = tokenizers.pt.lookup(in_tokens)[0]
+
+  fig = plt.figure(figsize=(16, 8))
+
+  for h, head in enumerate(attention_heads):
+    ax = fig.add_subplot(2, 4, h+1)
+
+    plot_attention_head(in_tokens, translated_tokens, head)
+
+    ax.set_xlabel(f'Head {h+1}')
+
+  plt.tight_layout()
+  plt.show()
+
+plot_attention_weights(sentence,
+                       translated_tokens,
+                       attention_weights['decoder_layer4_block2'][0])
+
+# Export the model
+# tf.function only the output sentence is returned. Thanks to the
+# non-strict execution in tf.function any unnecessary values are never computed.
+class ExportTranslator(tf.Module):
+  def __init__(self, translator):
+    self.translator = translator
+
+  @tf.function(input_signature=[tf.TensorSpec(shape=[], dtype=tf.string)])
+  def __call__(self, sentence):
+    (result,
+     tokens,
+     attention_weights) = self.translator(sentence, max_length=MAX_TOKENS)
+
+    return result
+
+translator = ExportTranslator(translator)
+modelDir = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Saved_Models\transformer\model'
+tf.saved_model.save(translator, export_dir=modelDir)
+
+
+
+
+
 
