@@ -6,7 +6,7 @@
       <sourceFolder url="file://$MODULE_DIR$/regression" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$" isTestSource="false" />
     </content>
-    <orderEntry type="jdk" jdkName="Python 3.8 (Exercises)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Pipenv (Exercises)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

@@ -5,12 +5,17 @@
 #import relevant libraries
 import os
 import time
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
 import tensorflow as tf
 import numpy as np
 import matplotlib as mpl
 #import IPython.display as display
 import PIL.Image
+import tensorflow.keras.applications.vgg16
+
+print('Number of GUPs:{}', tf.config.list_physical_devices('GPU'))
+#tf.keras.mixed_precision.set_global_policy("mixed_float16")
 
 data = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Data\deepdream'
 savepath = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Data\deepdream\saved'
@@ -46,8 +51,9 @@ show(original_img, os.path.join(savepath,'original.jpg'))
 # Get pre-trained model #
 # prepare InceptionV3 pre-trained image classification model which is similar
 # to the model originally used in DeepDream.
-#base_model = tf.keras.applications.InceptionV3(include_top=False, weights='imagenet')
 base_model = tf.keras.applications.inception_v3.InceptionV3(include_top=False, weights='imagenet')
+vgg_model  = tensorflow.keras.applications.vgg16.VGG16(include_top=False, weights='imagenet')
+eff_model  = tensorflow.keras.applications.EfficientNetB7(include_top=False, weights='imagenet')
 
 # For DeepDream, the layers of interest are those where the convolutions are concatenated.
 # There are 11 of these layers in InceptionV3, named 'mixed0' though 'mixed10'.
@@ -56,11 +62,19 @@ base_model = tf.keras.applications.inception_v3.InceptionV3(include_top=False, w
 # The complexity of the features incorporated depends on layers chosen by us, i.e,
 # lower layers produce strokes or simple patterns, while deeper layers give sophisticated
 # features in images, or even whole objects.
-names = ['mixed3', 'mixed5']
+names = ['mixed3', 'mixed5', 'mixed7']
 layers = [base_model.get_layer(name).output for name in names]
+
+vgg_names = ['block4_pool', 'block5_pool']
+vgg_layers = [vgg_model.get_layer(name).output for name in vgg_names]
+
+eff_names = ['block7d_bn', 'top_bn']
+eff_layers = [eff_model.get_layer(name).output for name in eff_names]
 
 # Create the feature extraction model
 dream_model = tf.keras.Model(inputs=base_model.input, outputs=layers)
+vgg_dream_model = tf.keras.Model(inputs=vgg_model.input, outputs=vgg_layers)
+eff_dream_model = tf.keras.Model(inputs=eff_model.input, outputs=eff_layers)
 
 ##################
 # Calculate loss #
@@ -122,6 +136,8 @@ class DeepDream():
       return loss, img
 
 deepdream = DeepDream(dream_model)
+#deepdream = DeepDream(vgg_dream_model)
+#deepdream  = DeepDream(eff_dream_model)
 
 #############
 # Main loop #
@@ -241,6 +257,8 @@ class TiledGradients(tf.Module):
     return gradients
 
 get_tiled_gradients = TiledGradients(dream_model)
+#get_tiled_gradients = TiledGradients(vgg_dream_model)
+#get_tiled_gradients = TiledGradients(eff_dream_model)
 
 # Putting this together gives a scalable, octave-aware deepdream implementation:
 def run_deep_dream_with_octaves(img, steps_per_octave=100, step_size=0.01,
