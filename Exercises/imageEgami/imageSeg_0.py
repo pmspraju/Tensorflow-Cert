@@ -18,10 +18,7 @@ import numpy as np
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 
-# Download he datasets from tfds
-dataset, info = tfds.load(cn.oxfort_dataset, with_info=True)
-ipath = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Data\images'
-mpath = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Saved_Models\Models\3'
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 # Load the image from the dataset
 def load_image(datapoint):
@@ -36,14 +33,6 @@ def load_image(datapoint):
 
     return input_image, input_mask
 
-TRAIN_LENGTH = info.splits['train'].num_examples
-BATCH_SIZE = 64
-BUFFER_SIZE = 1000
-
-# Split in to test and train sets
-train_dataset = dataset['train'].map(load_image, num_parallel_calls=tf.data.AUTOTUNE)
-test_dataset = dataset['test'].map(load_image, num_parallel_calls=tf.data.AUTOTUNE)
-
 # Build a class for augmentation to include in the pipeline
 class Augment(tf.keras.layers.Layer):
 
@@ -57,18 +46,6 @@ class Augment(tf.keras.layers.Layer):
         labels = self.labels_augment(labels)
         return inputs, labels
 
-# Build the pipeline
-train_batches = (
-    train_dataset
-    .cache()
-    .shuffle(BUFFER_SIZE)
-    .batch(BATCH_SIZE)
-    .repeat()
-    .map(Augment())
-    .prefetch(buffer_size=tf.data.AUTOTUNE)
-)
-test_batches = test_dataset.batch(BATCH_SIZE)
-
 def display(display_list):
   f = plt.figure(figsize=(15, 15))
 
@@ -79,14 +56,10 @@ def display(display_list):
     plt.title(title[i] + ' with shape ' +str(display_list[i].shape.as_list()))
     plt.imshow(tf.keras.utils.array_to_img(display_list[i]))
     plt.axis('off')
-  #plt.show()
+  plt.show()
   iname = 's'+str(randint(1,4))+'.png'
   f.savefig(os.path.join(ipath,iname), bbox_inches='tight')
   plt.close(f)
-
-for images, masks in train_batches.take(2):
-    sample_image, sample_mask = images[0], masks[0]
-    display([sample_image, sample_mask])
 
 # Build the model
 # U-net has convolution blocks, up-convolution blocks joined by concatenate layers
@@ -180,6 +153,47 @@ class cropConcat(tf.keras.layers.Layer):
 
         return x
 
+# Download he datasets from tfds
+dataset, info = tfds.load(cn.oxfort_dataset, with_info=True)
+
+
+TRAIN_LENGTH = info.splits['train[:10%]'].num_examples
+TRAIN_SIZE = info.splits['train[:10%]'].num_examples
+TEST_SIZE = info.splits['test[:10%]'].num_examples
+
+ipath = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Data\images'
+mpath = r'C:\Users\pmspr\Documents\Machine Learning\Courses\Tensorflow Cert\Saved_Models\Models\3'
+
+
+BATCH_SIZE = 64
+BUFFER_SIZE = 1000
+
+# Split in to test and train sets
+train_dataset = dataset['train'].take(TRAIN_SIZE).map(load_image, num_parallel_calls=tf.data.AUTOTUNE)
+test_dataset = dataset['test'].take(TEST_SIZE).map(load_image, num_parallel_calls=tf.data.AUTOTUNE)
+
+epochs = 1 #5
+STEPS_PER_EPOCH = TRAIN_LENGTH // BATCH_SIZE
+VAL_SUBSPLITS = 5
+VALIDATION_STEPS = TEST_SIZE//BATCH_SIZE//VAL_SUBSPLITS
+
+# Build the pipeline
+train_batches = (
+    train_dataset
+    .cache()
+    .shuffle(BUFFER_SIZE)
+    .batch(BATCH_SIZE)
+    .repeat()
+    .map(Augment())
+    .prefetch(buffer_size=tf.data.AUTOTUNE)
+)
+test_batches = test_dataset.batch(BATCH_SIZE)
+
+for images, masks in train_batches.take(2):
+    sample_image, sample_mask = images[0], masks[0]
+    display([sample_image, sample_mask])
+
+
 # Build the model
 inputs = tf.keras.Input(shape=(None, None, 3), name="inputs")
 OUTPUT_CLASSES = 3
@@ -232,11 +246,6 @@ outputs = tf.keras.layers.Conv2D(filters=OUTPUT_CLASSES,
 #outputs = tf.keras.layers.Activation("softmax", name="outputs")(iobj)
 model = tf.keras.Model(inputs, outputs, name="unet")
 model.summary()
-
-epochs = 5
-STEPS_PER_EPOCH = TRAIN_LENGTH // BATCH_SIZE
-VAL_SUBSPLITS = 5
-VALIDATION_STEPS = info.splits['test'].num_examples//BATCH_SIZE//VAL_SUBSPLITS
 
 model.compile(optimizer=tf.keras.optimizers.Adam(),
               loss= tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction=tf.losses.Reduction.NONE),
